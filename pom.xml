@@ -14,14 +14,159 @@
 
     <properties>
         <my.filter.value>hello</my.filter.value>
+
+        <protobuf.version>3.10.0</protobuf.version>
+        <grpc.version>1.42.1</grpc.version>
     </properties>
 
+
+    <profiles>
+        <profile>
+            <id>test-repository</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+
+            <!--当使用mvn deploy 的时候需要指定发布的目标服务仓库，否则会报错的。-->
+            <distributionManagement>
+                <snapshotRepository>
+                    <id>oss</id>
+                    <url>https://s01.oss.sonatype.org/content/repositories/snapshots/</url>
+                </snapshotRepository>
+                <repository>
+                    <id>oss</id>
+                    <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+                </repository>
+            </distributionManagement>
+        </profile>
+    </profiles>
+
+    <!--
+        主要有两个常用内置属性：${basedir}项目的根目录(包含pom.xml文件的目录)，${version}项目版本
+        POM属性
+        用户可以使用该属性引用POM文件中对应元素的值，常用的POM属性包括：
+        ${project.build.sourceDirectory}：项目的主源码目录，默认为 src/main/java
+        ${project.build.testSourceDirectory}：项目的测试源码目录，默认为 src/test/java
+        ${project.build.directory}：项目构件输出目录，默认为 target/
+        ${project.outputDirectory}：项目主代码编译输出目录，默认为 target/classes/
+        ${project.testOutputDirectory}：项目测试代码编译输出目录，默认为 target/test-classes/
+        ${project.groupId}：项目的 groupId
+        ${project.artifactId}：项目的 artifactId
+        ${project.version}：项目的 version，与${version}等价
+        ${project.build.fianlName}：项目打包输出文件的名称。默认为${project.artifactId}-${project.version}
+    -->
     <build>
+        <!--给模块打包的时候指定包名-->
+        <finalName>${project.artifactId}-${project.version}</finalName>
+
         <resources>
             <resource>
-                <directory>src/main/resources</directory>
+                <directory>${project.basedir}/src/main/resources</directory>
+                <!--使application*.* 中可以使用${xxx} 来引用pom.xml 中配置的变量，但不能直接被spring 加载到。-->
+                <!--如果想要在spring 项目中使用，则需要另外定义属性，如：suyh.common.prop=${my.filter.value}-->
                 <filtering>true</filtering>
             </resource>
         </resources>
+
+        <!--常用插件-->
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>2.2.5.RELEASE</version>
+                <configuration>
+                    <excludes>
+                        <!-- lombok 只在编译时有效 -->
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!--mvn deploy 插件-->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <version>2.8.2</version>
+                <configuration>
+                    <!--对于整个项目多个模块的时候有些模块是应用模块并不需要deploy 到仓库就可以使用该配置来跳该模块。-->
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+
+            <!--mvn 打包的时候将源代码也打包出来，这样别个在使用你的jar 包的时候就可以借助idea 工具直接下载源代码了。-->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.2.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 可以使用变量来指定整个项目的版本号，但是整个项目都要使用，不能从某个模块开始 -->
+            <!--对于一个项目有多个模块，但是这些模块全部要使用相同的版本号，就可以使用该插件，然后定义一个版本号的变量属性。-->
+            <!--只要改这个变量属性的值就可以全局变更项目的版本号了。-->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <version>1.2.7</version>
+                <configuration>
+                    <updatePomFile>true</updatePomFile>
+                    <flattenMode>resolveCiFriendliesOnly</flattenMode>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>flatten</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>flatten</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>flatten.clean</id>
+                        <phase>clean</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+
+            <plugin>
+                <!-- 用来编译proto 源文件的，生成的java 文件默认在 target/generated-sources、 目录下面的 -->
+                <!-- 而proto 源文件一般在：src/main/proto/ 目录下面 -->
+                <!--参考github项目：https://github.com/opensergo/opensergo-java-sdk-->
+                <groupId>org.xolstice.maven.plugins</groupId>
+                <artifactId>protobuf-maven-plugin</artifactId>
+                <version>0.6.1</version>
+                <configuration>
+                    <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}
+                    </protocArtifact>
+                    <pluginId>grpc-java</pluginId>
+                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}
+                    </pluginArtifact>
+                    <!-- 这里可以指定源文件目录和输出文件目录 -->
+                    <protoSourceRoot>${project.basedir}/src/main/proto</protoSourceRoot>
+                    <outputDirectory>${project.basedir}/src/main/suyh</outputDirectory>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>compile</goal>
+                            <goal>compile-custom</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
 </project>
